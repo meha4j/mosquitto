@@ -10,6 +10,9 @@ cmake_policy(SET CMP0042 NEW)
 project(mosquitto)
 set (VERSION 2.0.19)
 
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_EXPORT_COMPILE_COMMANDS true)
+
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 
 add_definitions (-DCMAKE -DVERSION=\"${VERSION}\")
@@ -100,11 +103,11 @@ endif()
 # Include projects
 # ========================================
 
-option(WITH_CLIENTS "Build clients?" ON)
+option(WITH_CLIENTS "Build clients?" OFF)
 option(WITH_BROKER "Build broker?" ON)
 option(WITH_APPS "Build apps?" ON)
-option(WITH_PLUGINS "Build plugins?" ON)
-option(DOCUMENTATION "Build documentation?" ON)
+option(WITH_PLUGINS "Build plugins?" OFF)
+option(DOCUMENTATION "Build documentation?" OFF)
 
 add_subdirectory(lib)
 if (WITH_CLIENTS)
