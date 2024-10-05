@@ -7,11 +7,12 @@
 cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0042 NEW)
 
-project(mosquitto)
+project(mosquitto C)
 set (VERSION 2.0.19)
 
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_EXPORT_COMPILE_COMMANDS true)
+set(COMPILE_OPTIONS -std=c23)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 

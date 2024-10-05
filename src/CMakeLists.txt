@@ -71,6 +71,7 @@ set (MOSQ_SRCS
 	websockets.c
 	will_delay.c
 	../lib/will_mosq.c ../lib/will_mosq.h
+  ../lib/legacy.c ../lib/legacy.h
 )
 
 
@@ -206,6 +207,8 @@ if (WITH_WEBSOCKETS)
 endif (WITH_WEBSOCKETS)
 
 add_executable(mosquitto ${MOSQ_SRCS})
+target_compile_options(mosquitto PUBLIC ${COMPILE_OPTIONS})
+
 target_link_libraries(mosquitto ${MOSQ_LIBS})
 if (WIN32)
 	set_target_properties(mosquitto PROPERTIES ENABLE_EXPORTS 1)

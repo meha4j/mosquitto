@@ -16,8 +16,6 @@ Contributors:
    Roger Light - initial implementation and documentation.
 */
 
-#include "config.h"
-
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
@@ -31,6 +29,7 @@ Contributors:
 #include "read_handle.h"
 #endif
 
+#include "legacy.h"
 #include "memory_mosq.h"
 #include "mqtt_protocol.h"
 #include "net_mosq.h"
@@ -219,9 +218,6 @@ int packet__check_oversize(struct mosquitto* mosq, uint32_t remaining_length) {
   }
 }
 
-static int mtol(struct mosquitto* mosq, struct mosquitto__packet* packet);
-static int ltom(struct mosquitto* mosq, struct mosquitto__packet* packet);
-
 int packet__write(struct mosquitto* mosq) {
   ssize_t write_length;
   struct mosquitto__packet* packet;
@@ -260,7 +256,7 @@ int packet__write(struct mosquitto* mosq) {
     packet = mosq->current_out_packet;
 
     if (mosq->legacy)
-      if (mtol(mosq, packet))
+      if (lcy_mtol(packet))
         goto end;
 
     while (packet->to_process > 0) {
@@ -368,11 +364,13 @@ int packet__read(struct mosquitto* mosq) {
   if (!mosq) {
     return MOSQ_ERR_INVAL;
   }
+
   if (mosq->sock == INVALID_SOCKET) {
     return MOSQ_ERR_NO_CONN;
   }
 
   state = mosquitto__get_state(mosq);
+
   if (state == mosq_cs_connect_pending) {
     return MOSQ_ERR_SUCCESS;
   }
@@ -395,9 +393,15 @@ int packet__read(struct mosquitto* mosq) {
     read_length = net__read(mosq, &byte, 1);
 
     if (read_length == 1) {
-      if ((byte & 0xf0) == 0x60 || (byte & 0xf0) == 0x70) {
-        mosq->legacy = 1;
-      }
+      if ((byte & 0xf0) == 0x60 || (byte & 0xf0) == 0x70)
+        if (state == mosq_cs_new) {
+          mosq->in_packet.command = CMD_CONNECT;
+          mosq->legacy = 1;
+
+          lcy_ltom(&mosq->in_packet);
+          handle__packet(mosq);
+          packet__cleanup(&mosq->in_packet);
+        }
 
       mosq->in_packet.command = byte;
 #ifdef WITH_BROKER
@@ -610,10 +614,7 @@ int packet__read(struct mosquitto* mosq) {
 
     } while (byte != 10);
 
-    mosq->in_packet.payload = mosquitto__realloc(
-        mosq->in_packet.payload, mosq->in_packet.remaining_length);
-
-    if (ltom(mosq, &mosq->in_packet))
+    if (lcy_ltom(&mosq->in_packet))
       goto end;
   }
 
@@ -640,104 +641,4 @@ end:
 #endif
 
   return rc;
-}
-
-static int mtol(struct mosquitto* mosq, struct mosquitto__packet* packet) {
-  if ((packet->command & 0xf0) != CMD_PUBLISH)
-    return -1;
-
-  return -1;
-}
-
-static int ltom(struct mosquitto* mosq, struct mosquitto__packet* packet) {
-  puts((char*)packet->payload);
-  char* key = strtok((char*)packet->payload, ":");
-
-  char* topic = 0;
-  char* value = 0;
-  char* lefto = 0;
-
-  struct tm tm;
-  struct timespec ts = {0, 0};
-
-  while (key) {
-    char* val = strtok(0, "|");
-
-    if (!val)
-      return -1;
-
-    switch (key[0]) {
-      case 'm':  // Method
-        switch (val[0]) {
-          case 'g':  // Get
-            packet->command = CMD_SUBSCRIBE;
-            break;
-          case 's':
-            if (strlen(val) == 1 || val[1] == 'e')  // Publish
-              packet->command = CMD_PUBLISH;
-            else  // Subscribe
-              packet->command = CMD_SUBSCRIBE;
-
-            break;
-          case 'r':  // Unsubscribe
-          case 'f':
-            packet->command = CMD_UNSUBSCRIBE;
-            break;
-          default:
-            return -1;
-        };
-
-        break;
-      case 'n':  // Topic
-        topic = val;
-        break;
-      case 't':  // Time
-        if (!(lefto = strptime(val, "%d.%m.%Y %H_%M_%S", &tm)))
-          return -1;
-
-        if (lefto[0] == 10)
-          return -1;
-
-        if (sscanf(lefto + 1, "%lu", &ts.tv_nsec) != 1)
-          return -1;
-
-        ts.tv_sec = timelocal(&tm);
-
-        break;
-      case 'd':  // Description
-        break;
-      case 'v':  // Value
-        value = val;
-        break;
-      default:
-        return -1;
-    }
-
-    key = strtok(0, ":");
-  }
-
-  size_t stamp;
-
-  if (ts.tv_sec == 0) {
-    clock_gettime(CLOCK_REALTIME, &ts);
-    stamp = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-  } else
-    stamp = ts.tv_sec * 1000 + ts.tv_nsec;
-
-  switch (packet->command) {
-    case CMD_PUBLISH:
-      printf("Pub: {\n\ttopic: %s,\n\ttime: %lu\n\tval: %s\n}\n", topic, stamp,
-             value);
-      break;
-    case CMD_SUBSCRIBE:
-      printf("Sub: {\n\ttopic: %s,\n\ttime: %lu\n}\n", topic, stamp);
-      break;
-    case CMD_UNSUBSCRIBE:
-      printf("Unsub: {\n\ttopic: %s,\n\ttime: %lu\n}\n", topic, stamp);
-      break;
-    default:
-      return -1;
-  }
-
-  return -1;
 }

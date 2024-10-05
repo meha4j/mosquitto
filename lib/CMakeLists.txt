@@ -1,4 +1,4 @@
-option(WITH_LIB_CPP "Build C++ library?" ON)
+option(WITH_LIB_CPP "Build C++ library?" OFF)
 if (WITH_LIB_CPP)
 	add_subdirectory(cpp)
 endif (WITH_LIB_CPP)
@@ -40,6 +40,7 @@ set(C_SRC
 	options.c
 	packet_datatypes.c
 	packet_mosq.c packet_mosq.h
+  legacy.c legacy.h
 	property_mosq.c property_mosq.h
 	read_handle.c read_handle.h
 	send_connect.c
@@ -57,7 +58,8 @@ set(C_SRC
 	tls_mosq.c
 	utf8_mosq.c
 	util_mosq.c util_topic.c util_mosq.h
-	will_mosq.c will_mosq.h)
+	will_mosq.c will_mosq.h
+)
 
 set (LIBRARIES ${OPENSSL_LIBRARIES})
 
@@ -88,6 +90,8 @@ set_target_properties(libmosquitto PROPERTIES
 	POSITION_INDEPENDENT_CODE 1
 )
 
+target_compile_options(libmosquitto PUBLIC ${COMPILE_OPTIONS})
+
 target_link_libraries(libmosquitto PRIVATE ${LIBRARIES})
 
 if (WITH_THREADING)
@@ -116,6 +120,8 @@ install(TARGETS libmosquitto
 
 if (WITH_STATIC_LIBRARIES)
 	add_library(libmosquitto_static STATIC ${C_SRC})
+  target_compile_options(libmosquitto_static PUBLIC ${COMPILE_OPTIONS})
+
 	if (WITH_PIC)
 		set_target_properties(libmosquitto_static PROPERTIES
 			POSITION_INDEPENDENT_CODE 1
