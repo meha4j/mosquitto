@@ -614,6 +614,8 @@ int packet__read(struct mosquitto* mosq) {
 
     } while (byte != 10);
 
+    mosq->in_packet.payload[--mosq->in_packet.remaining_length] = 0;
+
     if (lcy_ltom(&mosq->in_packet))
       goto end;
   }

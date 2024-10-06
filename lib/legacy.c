@@ -62,7 +62,7 @@ static uint8_t* get_u16(uint8_t* dst, uint16_t* src) {
   if (!src)
     return dst + 2;
 
-  *src = ((uint16_t)dst[0] << 8) & ((uint16_t)dst[1]);
+  *src = (dst[0] << 8) | (dst[1]);
   return dst + 2;
 }
 
@@ -89,7 +89,10 @@ static int ltom_con(struct mosquitto__packet* pack) {
 }
 
 static int ltom_pub(struct lm* msg, struct mosquitto__packet* pack) {
-  pack->command = 0x35;  // Publish, DUP = 0, QoS = 2, Retain = 1
+  if (!msg->value)
+    return -1;
+
+  pack->command = 0x31;  // Publish, DUP = 0, QoS = 0, Retain = 1
 
   uint16_t ts = strlen(msg->topic);
   uint16_t vs = strlen(msg->value);
@@ -120,11 +123,11 @@ static int ltom_sub(struct lm* msg, struct mosquitto__packet* pack) {
   uint8_t* pl = mosquitto__malloc(pack->remaining_length);
   uint8_t* pp = pl;
 
-  pp = set_u16(pp, 0x05be);                    // Packet identifier
+  pp = set_u16(pp, 0x3654);                    // Packet identifier
   pp = set_u08(pp, 0x00);                      // Properties length
   pp = set_u16(pp, ts);                        // Topic length
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
-  pp = set_u08(pp, 0x02);                      // Options
+  pp = set_u08(pp, 0x00);                      // Options
 
   mosquitto__free(pack->payload);
   pack->payload = pl;
@@ -138,11 +141,11 @@ static int ltom_usub(struct lm* msg, struct mosquitto__packet* pack) {
 
   uint16_t ts = strlen(msg->topic);
 
-  pack->remaining_length = PAY_SUB + ts;
+  pack->remaining_length = PAY_SUB - 1 + ts;
   uint8_t* pl = mosquitto__malloc(pack->remaining_length);
   uint8_t* pp = pl;
 
-  pp = set_u16(pp, 0x05be);                    // Packet identifier
+  pp = set_u16(pp, 0x3654);                    // Packet identifier
   pp = set_u08(pp, 0x00);                      // Properties length
   pp = set_u16(pp, ts);                        // Topic length
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
@@ -240,6 +243,9 @@ int lcy_ltom(struct mosquitto__packet* pack) {
     if (tm_now(&msg.timestamp))
       return -1;
 
+  if (!msg.topic)
+    return -1;
+
   switch (pack->command) {
     case CMD_PUBLISH:
       if (ltom_pub(&msg, pack))
@@ -273,11 +279,16 @@ int lcy_mtol(struct mosquitto__packet* pack) {
 
   struct lm msg = {0, 0, 0};
 
+  pp = get_u16(pp, NULL);
   pp = get_u16(pp, &tl);
 
   msg.topic = (char*)pp;
 
   pp = get_all(pp, NULL, tl);
+
+  if (((pack->command & 0x06) >> 1) > 0)
+    pp = get_u16(pp, NULL);
+
   pp = get_u08(pp, &pl);
   pp = get_all(pp, NULL, pl);
 
@@ -286,20 +297,19 @@ int lcy_mtol(struct mosquitto__packet* pack) {
   while (key) {
     char* val = strtok(0, ",");
 
-    if (!val)
-      return -1;
+    if (val) {
+      if (strstr(key, "val")) {
+        char* c = strchr(val, '"');
 
-    if (strstr(key, "val")) {
-      char* c = strchr(val, '"');
-
-      if (c) {
-        msg.value = c + 1;
-        strchr(c + 1, '"')[0] = '\n';
-      } else
-        msg.value = val;
-    } else if (strstr(key, "time"))
-      if (sscanf(val, "%lu", &msg.timestamp) != 1)
-        return -1;
+        if (c) {
+          msg.value = c + 1;
+          strchr(c + 1, '"')[0] = 0;
+        } else
+          msg.value = val;
+      } else if (strstr(key, "time"))
+        if (sscanf(val, "%lu", &msg.timestamp) != 1)
+          return -1;
+    }
 
     key = strtok(0, ":");
   }
@@ -307,16 +317,18 @@ int lcy_mtol(struct mosquitto__packet* pack) {
   if (!msg.timestamp)
     return -1;
 
-  char* pld = mosquitto__malloc(39 + strlen(msg.topic) + strlen(msg.value));
+  pack->remaining_length = 38 + strlen(msg.topic) + strlen(msg.value);
+
+  char* pld = mosquitto__malloc(pack->remaining_length);
   char* p = pld;
   time_t t = msg.timestamp / 1000;
 
   p += sprintf(p, "name:%s|time:", msg.topic);
-  p += strftime(p, 19, "%d.%m.%Y %H_%M_%S", localtime(&t));
-  p += sprintf(p, ".%3lu|val:%s", msg.timestamp - (t * 1000), msg.value);
+  strftime(p, 21, "%d.%m.%Y %H_%M_%S", localtime(&t));
+  p += 19;
+  p += sprintf(p, ".%3lu|val:%s\n", msg.timestamp - (t * 1000), msg.value);
 
   mosquitto__free(pack->payload);
-
   pack->payload = (uint8_t*)pld;
 
   return 0;
