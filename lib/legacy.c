@@ -3,9 +3,12 @@
 #include "memory_mosq.h"
 #include "mqtt_protocol.h"
 #include "net_mosq.h"
+#include "packet_mosq.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#define CMD_GET 0x0
 
 #define PAY_CON 28
 #define PAY_PUB 42
@@ -89,10 +92,10 @@ static int ltom_con(struct mosquitto__packet* pack) {
 }
 
 static int ltom_pub(struct lm* msg, struct mosquitto__packet* pack) {
-  if (!msg->value)
-    return -1;
-
   pack->command = 0x31;  // Publish, DUP = 0, QoS = 0, Retain = 1
+
+  if (!msg->value)
+    msg->value = "null";
 
   uint16_t ts = strlen(msg->topic);
   uint16_t vs = strlen(msg->value);
@@ -150,10 +153,34 @@ static int ltom_usub(struct lm* msg, struct mosquitto__packet* pack) {
   pp = set_u16(pp, ts);                        // Topic length
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
 
-  mosquitto__free(pack->payload);
+  if (pack->payload)
+    mosquitto__free(pack->payload);
+
   pack->payload = pl;
   pack->pos = 2;
 
+  return 0;
+}
+
+static int ltom_get(struct lm* msg, struct mosquitto__packet* pack) {
+  if (ltom_sub(msg, pack))
+    return -1;
+
+  struct mosquitto__packet* p =
+      mosquitto__malloc(sizeof(struct mosquitto__packet));
+
+  if (!p)
+    return -1;
+
+  p->payload = 0;
+  packet__cleanup(p);
+
+  if (ltom_usub(msg, p)) {
+    mosquitto__free(p);
+    return -1;
+  }
+
+  pack->next = p;
   return 0;
 }
 
@@ -169,7 +196,7 @@ static int tm_parse(size_t* dst, char* src) {
   if (!src)
     return -1;
 
-  if (sscanf(src, "%lu", &ts.tv_nsec) != 1)
+  if (sscanf(src + 1, "%lu", &ts.tv_nsec) != 1)
     return -1;
 
   *dst = ts.tv_sec * 1000 + ts.tv_nsec;
@@ -205,7 +232,7 @@ int lcy_ltom(struct mosquitto__packet* pack) {
       case 'm':  // Method
         switch (val[0]) {
           case 'g':  // Get
-            pack->command = CMD_SUBSCRIBE;
+            pack->command = CMD_GET;
             break;
           case 's':
             if (strlen(val) == 1 || val[1] == 'e')  // Publish
@@ -247,6 +274,11 @@ int lcy_ltom(struct mosquitto__packet* pack) {
     return -1;
 
   switch (pack->command) {
+    case CMD_GET:
+      if (ltom_get(&msg, pack))
+        return -1;
+
+      break;
     case CMD_PUBLISH:
       if (ltom_pub(&msg, pack))
         return -1;
@@ -317,7 +349,7 @@ int lcy_mtol(struct mosquitto__packet* pack) {
   if (!msg.timestamp)
     return -1;
 
-  pack->remaining_length = 38 + strlen(msg.topic) + strlen(msg.value);
+  pack->remaining_length = 40 + tl + strlen(msg.value);
 
   char* pld = mosquitto__malloc(pack->remaining_length);
   char* p = pld;
@@ -326,10 +358,12 @@ int lcy_mtol(struct mosquitto__packet* pack) {
   p += sprintf(p, "name:%s|time:", msg.topic);
   strftime(p, 21, "%d.%m.%Y %H_%M_%S", localtime(&t));
   p += 19;
-  p += sprintf(p, ".%3lu|val:%s\n", msg.timestamp - (t * 1000), msg.value);
+  p += sprintf(p, ".%03lu|val:%s\n", msg.timestamp - (t * 1000), msg.value);
 
   mosquitto__free(pack->payload);
+
   pack->payload = (uint8_t*)pld;
+  pack->to_process = pack->remaining_length;
 
   return 0;
 }

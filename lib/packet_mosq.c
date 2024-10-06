@@ -97,7 +97,10 @@ void packet__cleanup(struct mosquitto__packet* packet) {
   packet->remaining_count = 0;
   packet->remaining_mult = 1;
   packet->remaining_length = 0;
-  mosquitto__free(packet->payload);
+
+  if (packet->payload)
+    mosquitto__free(packet->payload);
+
   packet->payload = NULL;
   packet->to_process = 0;
   packet->pos = 0;
@@ -629,6 +632,16 @@ int packet__read(struct mosquitto* mosq) {
   }
 #endif
   rc = handle__packet(mosq);
+
+  if (!rc && mosq->in_packet.next) {
+    packet__cleanup(&mosq->in_packet);
+
+    mosq->in_packet.command = mosq->in_packet.next->command;
+    mosq->in_packet.payload = mosq->in_packet.next->payload;
+    mosq->in_packet.remaining_length = mosq->in_packet.next->remaining_length;
+
+    rc = handle__packet(mosq);
+  }
 
 end:
   /* Free data and reset values */
