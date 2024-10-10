@@ -91,6 +91,8 @@ if (INC_BRIDGE_SUPPORT)
 	add_definitions("-DWITH_BRIDGE")
 endif (INC_BRIDGE_SUPPORT)
 
+find_package(json-c REQUIRED)
+set(MOSQ_LIBS ${MOSQ_LIBS} json-c::json-c)
 
 option(USE_LIBWRAP
 	"Include tcp-wrappers support?" OFF)

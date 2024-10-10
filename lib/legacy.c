@@ -5,6 +5,8 @@
 #include "net_mosq.h"
 #include "packet_mosq.h"
 
+#include <errno.h>
+#include <json-c/json.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -12,8 +14,8 @@
 #define PUB_FMT "{\"value\":\"%s\",\"timestamp\":%13lu,}"
 
 struct lm {
-  char* topic;
-  char* value;
+  const char* topic;
+  const char* value;
   size_t timestamp;
 };
 
@@ -305,6 +307,7 @@ int lcy_mtol(struct mosquitto__packet* pack) {
     return -1;
 
   struct lm msg = {0, 0, 0};
+  errno = 0;
 
   uint16_t tl;
   uint8_t pl;
@@ -314,44 +317,79 @@ int lcy_mtol(struct mosquitto__packet* pack) {
 
   pp = get_u08(pp, NULL);
 
+  pack->remaining_mult = 1;
+  pack->remaining_length = 0;
+
   do {
     pp = get_u08(pp, &cb);
+
+    pack->remaining_length += (cb & 0x7f) * pack->remaining_mult;
+    pack->remaining_mult *= 0x80;
   } while ((cb & 0x80) != 0);
 
   pp = get_u16(pp, &tl);
   msg.topic = (char*)pp;
   pp = get_all(pp, NULL, tl);
 
-  if (((pack->command & 0x06) >> 1) > 0)
+  pack->remaining_length -= tl + 2;
+
+  if (((pack->command & 0x06) >> 1) > 0) {
     pp = get_u16(pp, NULL);
+    pack->remaining_length -= 2;
+  }
 
   pp = get_u08(pp, &pl);
   pp = get_all(pp, NULL, pl);
 
-  char* key = strtok((char*)pp, ":");
+  pack->remaining_length -= pl + 1;
 
-  while (key) {
-    char* val = strtok(0, ",");
+  struct json_tokener* tok = json_tokener_new();
 
-    if (val) {
-      if (strstr(key, "val")) {
-        char* c = strchr(val, '"');
+  if (!tok)
+    return -1;
 
-        if (c) {
-          msg.value = c + 1;
-          strchr(c + 1, '"')[0] = 0;
-        } else
-          msg.value = val;
-      } else if (strstr(key, "time"))
-        if (sscanf(val, "%lu", &msg.timestamp) != 1)
-          return -1;
-    }
+  struct json_object* obj =
+      json_tokener_parse_ex(tok, (char*)pp, pack->remaining_length);
 
-    key = strtok(0, ":");
+  json_tokener_free(tok);
+
+  if (!obj)
+    return -1;
+
+  if (json_object_get_type(obj) != json_type_object) {
+    json_object_put(obj);
+    return -1;
   }
 
-  if (!msg.timestamp)
+  struct json_object* field;
+
+  if (!json_object_object_get_ex(obj, "timestamp", &field)) {
+    json_object_put(obj);
     return -1;
+  }
+
+  if (json_object_get_type(field) != json_type_int) {
+    json_object_put(obj);
+    return -1;
+  }
+
+  msg.timestamp = json_object_get_uint64(field);
+  msg.value = "null";
+
+  if (json_object_object_get_ex(obj, "value", &field)) {
+    switch (json_object_get_type(field)) {
+      case json_type_int:
+      case json_type_double:
+      case json_type_boolean:
+        msg.value = json_object_to_json_string(field);
+        break;
+      case json_type_string:
+        msg.value = json_object_get_string(field);
+        break;
+      default:
+        break;
+    }
+  }
 
   pack->remaining_length = 40 + tl + strlen(msg.value);
 
@@ -364,6 +402,7 @@ int lcy_mtol(struct mosquitto__packet* pack) {
   p += 19;
   p += sprintf(p, ".%03lu|val:%s\n", msg.timestamp - (t * 1000), msg.value);
 
+  json_object_put(obj);
   mosquitto__free(pack->payload);
 
   pack->payload = (uint8_t*)pld;
