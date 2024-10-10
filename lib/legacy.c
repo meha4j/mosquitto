@@ -9,18 +9,11 @@
 #include <stdlib.h>
 
 #define CMD_GET 0x0
-
-#define PAY_CON 28
-#define PAY_PUB 42
-#define PAY_SUB 6
-#define PAY_USUB 28
-
 #define PUB_FMT "{\"value\":\"%s\",\"timestamp\":%13lu,}"
 
 struct lm {
   char* topic;
   char* value;
-
   size_t timestamp;
 };
 
@@ -72,8 +65,9 @@ static uint8_t* get_u16(uint8_t* dst, uint16_t* src) {
 static int ltom_con(struct mosquitto__packet* pack) {
   pack->command = 0x10;  // Connect
 
-  pack->remaining_length = PAY_CON;
+  pack->remaining_length = 28;
   pack->payload = mosquitto__malloc(pack->remaining_length);
+
   uint8_t* pp = pack->payload;
 
   pp = set_u16(pp, 0x0004);               // Protocol length
@@ -84,7 +78,7 @@ static int ltom_con(struct mosquitto__packet* pack) {
   pp = set_u08(pp, 0x00);                 // Properties length
   pp = set_u16(pp, 0x000f);               // Client ID length
 
-  sprintf((char*)pp, "vcas_%#010x", rand());  // Client ID
+  sprintf((char*)pp, "vcas_%#010x", rand());  // Client ID (15)
 
   pack->pos = 0;
 
@@ -100,7 +94,8 @@ static int ltom_pub(struct lm* msg, struct mosquitto__packet* pack) {
   uint16_t ts = strlen(msg->topic);
   uint16_t vs = strlen(msg->value);
 
-  pack->remaining_length = PAY_PUB + ts + vs;
+  pack->remaining_length = 42 + ts + vs;
+
   uint8_t* pl = mosquitto__malloc(pack->remaining_length);
   uint8_t* pp = pl;
 
@@ -108,7 +103,7 @@ static int ltom_pub(struct lm* msg, struct mosquitto__packet* pack) {
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
   pp = set_u08(pp, 0x00);                      // Properties length
 
-  sprintf((char*)pp, PUB_FMT, msg->value, msg->timestamp);  // Payload
+  sprintf((char*)pp, PUB_FMT, msg->value, msg->timestamp);  // Payload (39)
 
   mosquitto__free(pack->payload);
   pack->payload = pl;
@@ -122,7 +117,8 @@ static int ltom_sub(struct lm* msg, struct mosquitto__packet* pack) {
 
   uint16_t ts = strlen(msg->topic);
 
-  pack->remaining_length = PAY_SUB + ts;
+  pack->remaining_length = 6 + ts;
+
   uint8_t* pl = mosquitto__malloc(pack->remaining_length);
   uint8_t* pp = pl;
 
@@ -144,7 +140,8 @@ static int ltom_usub(struct lm* msg, struct mosquitto__packet* pack) {
 
   uint16_t ts = strlen(msg->topic);
 
-  pack->remaining_length = PAY_SUB - 1 + ts;
+  pack->remaining_length = 5 + ts;
+
   uint8_t* pl = mosquitto__malloc(pack->remaining_length);
   uint8_t* pp = pl;
 
@@ -173,6 +170,8 @@ static int ltom_get(struct lm* msg, struct mosquitto__packet* pack) {
     return -1;
 
   p->payload = 0;
+  p->next = 0;
+
   packet__cleanup(p);
 
   if (ltom_usub(msg, p)) {
@@ -218,8 +217,8 @@ int lcy_ltom(struct mosquitto__packet* pack) {
     return ltom_con(pack);
 
   pack->command = 0;
-
   struct lm msg = {0, 0, 0};
+
   char* key = strtok((char*)pack->payload, ":");
 
   while (key) {
@@ -305,17 +304,22 @@ int lcy_mtol(struct mosquitto__packet* pack) {
   if ((pack->command & 0xf0) != CMD_PUBLISH)
     return -1;
 
-  uint8_t* pp = pack->payload;
-  uint16_t tl;
-  uint8_t pl;
-
   struct lm msg = {0, 0, 0};
 
-  pp = get_u16(pp, NULL);
+  uint16_t tl;
+  uint8_t pl;
+  uint8_t cb;
+
+  uint8_t* pp = pack->payload;
+
+  pp = get_u08(pp, NULL);
+
+  do {
+    pp = get_u08(pp, &cb);
+  } while ((cb & 0x80) != 0);
+
   pp = get_u16(pp, &tl);
-
   msg.topic = (char*)pp;
-
   pp = get_all(pp, NULL, tl);
 
   if (((pack->command & 0x06) >> 1) > 0)

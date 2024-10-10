@@ -594,6 +594,11 @@ int packet__read(struct mosquitto* mosq) {
     mosq->in_packet.remaining_length = 1;
 
     do {
+      if (mosq->in_packet.remaining_length == 0xffff) {
+        mosquitto__free(mosq->in_packet.payload);
+        return MOSQ_ERR_MALFORMED_PACKET;
+      }
+
       read_length = net__read(mosq, &byte, 1);
 
       if (read_length == 1) {
@@ -619,32 +624,51 @@ int packet__read(struct mosquitto* mosq) {
 
     mosq->in_packet.payload[--mosq->in_packet.remaining_length] = 0;
 
-    if (lcy_ltom(&mosq->in_packet))
+    if (lcy_ltom(&mosq->in_packet)) {
+      rc = MOSQ_ERR_MALFORMED_PACKET;
       goto end;
+    }
   }
 
   /* All data for this packet is read. */
   mosq->in_packet.pos = 0;
+
 #ifdef WITH_BROKER
   G_MSGS_RECEIVED_INC(1);
   if (!mosq->legacy && ((mosq->in_packet.command) & 0xF0) == CMD_PUBLISH) {
     G_PUB_MSGS_RECEIVED_INC(1);
   }
 #endif
-  rc = handle__packet(mosq);
 
-  if (!rc && mosq->in_packet.next) {
+  while (mosq->in_packet.payload) {
+    rc = handle__packet(mosq);
+
+    if (rc)
+      goto end;
+
     packet__cleanup(&mosq->in_packet);
 
-    mosq->in_packet.command = mosq->in_packet.next->command;
-    mosq->in_packet.payload = mosq->in_packet.next->payload;
-    mosq->in_packet.remaining_length = mosq->in_packet.next->remaining_length;
+    if (mosq->in_packet.next) {
+      mosq->in_packet.command = mosq->in_packet.next->command;
+      mosq->in_packet.payload = mosq->in_packet.next->payload;
+      mosq->in_packet.remaining_length = mosq->in_packet.next->remaining_length;
 
-    rc = handle__packet(mosq);
+      struct mosquitto__packet* n = mosq->in_packet.next;
+      mosq->in_packet.next = mosq->in_packet.next->next;
+      mosquitto__free(n);
+    }
   }
 
 end:
   /* Free data and reset values */
+  while (mosq->in_packet.next) {
+    struct mosquitto__packet* p = mosq->in_packet.next;
+    mosq->in_packet.next = p->next;
+
+    mosquitto__free(p->payload);
+    mosquitto__free(p);
+  }
+
   packet__cleanup(&mosq->in_packet);
 
 #ifdef WITH_BROKER
