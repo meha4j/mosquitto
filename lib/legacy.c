@@ -16,6 +16,7 @@
 struct lm {
   const char* topic;
   const char* value;
+
   size_t timestamp;
 };
 
@@ -90,13 +91,30 @@ static int ltom_con(struct mosquitto__packet* pack) {
 static int ltom_pub(struct lm* msg, struct mosquitto__packet* pack) {
   pack->command = 0x31;  // Publish, DUP = 0, QoS = 0, Retain = 1
 
-  if (!msg->value)
-    msg->value = "null";
+  struct json_object* obj = json_object_new_object();
 
+  if (!obj)
+    return -1;
+
+  json_object_object_add(obj, "timestamp",
+                         json_object_new_int64(msg->timestamp));
+
+  if (msg->value) {
+    double dv = strtod(msg->value, 0);
+
+    if (dv != 0)
+      json_object_object_add(obj, "value", json_object_new_double(dv));
+    else
+      json_object_object_add(obj, "value", json_object_new_string(msg->value));
+  }
+
+  uint64_t ps;
   uint16_t ts = strlen(msg->topic);
-  uint16_t vs = strlen(msg->value);
 
-  pack->remaining_length = 42 + ts + vs;
+  const char* p =
+      json_object_to_json_string_length(obj, JSON_C_TO_STRING_PLAIN, &ps);
+
+  pack->remaining_length = 3 + ts + ps;
 
   uint8_t* pl = mosquitto__malloc(pack->remaining_length);
   uint8_t* pp = pl;
@@ -104,10 +122,11 @@ static int ltom_pub(struct lm* msg, struct mosquitto__packet* pack) {
   pp = set_u16(pp, ts);                        // Topic length
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
   pp = set_u08(pp, 0x00);                      // Properties length
+  pp = set_all(pp, (uint8_t*)p, ps);
 
-  sprintf((char*)pp, PUB_FMT, msg->value, msg->timestamp);  // Payload (39)
-
+  json_object_put(obj);
   mosquitto__free(pack->payload);
+
   pack->payload = pl;
   pack->pos = 0;
 
@@ -226,43 +245,41 @@ int lcy_ltom(struct mosquitto__packet* pack) {
   while (key) {
     char* val = strtok(0, "|");
 
-    if (!val)
-      return -1;
+    if (val)
+      switch (key[0]) {
+        case 'm':  // Method
+          switch (val[0]) {
+            case 'g':  // Get
+              pack->command = CMD_GET;
+              break;
+            case 's':
+              if (strlen(val) == 1 || val[1] == 'e')  // Publish
+                pack->command = CMD_PUBLISH;
+              else  // Subscribe
+                pack->command = CMD_SUBSCRIBE;
 
-    switch (key[0]) {
-      case 'm':  // Method
-        switch (val[0]) {
-          case 'g':  // Get
-            pack->command = CMD_GET;
-            break;
-          case 's':
-            if (strlen(val) == 1 || val[1] == 'e')  // Publish
-              pack->command = CMD_PUBLISH;
-            else  // Subscribe
-              pack->command = CMD_SUBSCRIBE;
+              break;
+            case 'r':  // Unsubscribe
+            case 'f':
+              pack->command = CMD_UNSUBSCRIBE;
+              break;
+            default:
+              return -1;
+          };
 
-            break;
-          case 'r':  // Unsubscribe
-          case 'f':
-            pack->command = CMD_UNSUBSCRIBE;
-            break;
-          default:
+          break;
+        case 'n':  // Topic
+          msg.topic = val;
+          break;
+        case 't':  // Time
+          if (tm_parse(&msg.timestamp, val))
             return -1;
-        };
 
-        break;
-      case 'n':  // Topic
-        msg.topic = val;
-        break;
-      case 't':  // Time
-        if (tm_parse(&msg.timestamp, val))
-          return -1;
-
-        break;
-      case 'v':  // Value
-        msg.value = val;
-        break;
-    }
+          break;
+        case 'v':  // Value
+          msg.value = val;
+          break;
+      }
 
     key = strtok(0, ":");
   }

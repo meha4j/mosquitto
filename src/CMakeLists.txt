@@ -74,6 +74,8 @@ set (MOSQ_SRCS
   ../lib/legacy.c ../lib/legacy.h
 )
 
+find_package(json-c REQUIRED)
+set(MOSQ_LIBS ${MOSQ_LIBS} json-c::json-c)
 
 if (WITH_BUNDLED_DEPS)
 	include_directories(${mosquitto_SOURCE_DIR} ${mosquitto_SOURCE_DIR}/deps)
@@ -90,9 +92,6 @@ if (INC_BRIDGE_SUPPORT)
 	set (MOSQ_SRCS ${MOSQ_SRCS} bridge.c)
 	add_definitions("-DWITH_BRIDGE")
 endif (INC_BRIDGE_SUPPORT)
-
-find_package(json-c REQUIRED)
-set(MOSQ_LIBS ${MOSQ_LIBS} json-c::json-c)
 
 option(USE_LIBWRAP
 	"Include tcp-wrappers support?" OFF)

@@ -40,7 +40,6 @@ set(C_SRC
 	options.c
 	packet_datatypes.c
 	packet_mosq.c packet_mosq.h
-  legacy.c legacy.h
 	property_mosq.c property_mosq.h
 	read_handle.c read_handle.h
 	send_connect.c
@@ -59,9 +58,12 @@ set(C_SRC
 	utf8_mosq.c
 	util_mosq.c util_topic.c util_mosq.h
 	will_mosq.c will_mosq.h
+  legacy.c legacy.h
 )
 
-set (LIBRARIES ${OPENSSL_LIBRARIES})
+find_package(json-c REQUIRED)
+
+set (LIBRARIES ${OPENSSL_LIBRARIES} json-c::json-c)
 
 if (UNIX AND NOT APPLE AND NOT ANDROID)
 	find_library(LIBRT rt)

@@ -90,7 +90,7 @@ if (WITH_DLT)
 	add_definitions("-DWITH_DLT")
 endif (WITH_DLT)
 
-option(WITH_CJSON "Build with cJSON support (required for dynamic security plugin and useful for mosquitto_sub)?" ON)
+option(WITH_CJSON "Build with cJSON support (required for dynamic security plugin and useful for mosquitto_sub)?" OFF)
 if (WITH_CJSON)
     FIND_PACKAGE(cJSON)
     if (CJSON_FOUND)
