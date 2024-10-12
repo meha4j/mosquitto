@@ -1,6 +1,13 @@
-include_directories(${mosquitto_SOURCE_DIR} ${mosquitto_SOURCE_DIR}/src
-		${mosquitto_SOURCE_DIR}/include ${mosquitto_SOURCE_DIR}/lib
-		${OPENSSL_INCLUDE_DIR} ${STDBOOL_H_PATH} ${STDINT_H_PATH})
+include_directories(
+  ${mosquitto_SOURCE_DIR} 
+  ${mosquitto_SOURCE_DIR}/src
+	${mosquitto_SOURCE_DIR}/include
+  ${mosquitto_SOURCE_DIR}/lib
+	${OPENSSL_INCLUDE_DIR} 
+  ${STDBOOL_H_PATH} 
+  ${STDINT_H_PATH}
+  ${UTHASH_INCLUDE_DIRS}
+)
 
 set (MOSQ_SRCS
 	../lib/alias_mosq.c ../lib/alias_mosq.h
@@ -70,7 +77,8 @@ set (MOSQ_SRCS
 	../lib/utf8_mosq.c
 	websockets.c
 	will_delay.c
-	../lib/will_mosq.c ../lib/will_mosq.h)
+	../lib/will_mosq.c ../lib/will_mosq.h
+)
 
 
 if (WITH_BUNDLED_DEPS)

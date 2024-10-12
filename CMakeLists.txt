@@ -8,6 +8,7 @@ cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0042 NEW)
 
 set(CMAKE_TOOLCHAIN_FILE "vcpkg/scripts/buildsystems/vcpkg.cmake")
+set(CMAKE_EXPORT_COMPILE_COMMAND true)
 
 project(mosquitto)
 set(VERSION 2.0.19)
@@ -42,6 +43,7 @@ option(WITH_PIC "Build the static library with PIC enabled archives?" OFF)
 option(WITH_DLT "Include DLT support?" OFF)
 
 find_package(cJSON REQUIRED)
+find_path(UTHASH_INCLUDE_DIRS "uthash.h")
 
 if(WITH_TLS)
   find_package(OpenSSL REQUIRED)
@@ -95,7 +97,7 @@ option(WITH_CLIENTS "Build clients?" ON)
 option(WITH_BROKER "Build broker?" ON)
 option(WITH_APPS "Build apps?" ON)
 option(WITH_PLUGINS "Build plugins?" ON)
-option(DOCUMENTATION "Build documentation?" ON)
+option(DOCUMENTATION "Build documentation?" OFF)
 
 add_subdirectory(lib)
 

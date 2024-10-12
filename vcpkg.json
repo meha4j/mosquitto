@@ -5,6 +5,7 @@
     "cjson",
     "libwebsockets",
     "openssl",
-    "pthreads"
+    "pthreads",
+    "uthash"
   ]
 }
