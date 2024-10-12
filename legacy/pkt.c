@@ -13,6 +13,7 @@
 #include <packet_mosq.h>
 
 #define CMD_GET 0x0
+#define FMT "%d.%m.%Y %H_%M_%S"
 
 struct lm {
   const char* topic;
@@ -39,7 +40,16 @@ static uint8_t* set_fmt(uint8_t* dst, const char* fmt, ...) {
 }
 
 static uint8_t* set_ltm(uint8_t* dst, size_t t) {
-  return dst;
+  char buf[0xff];
+
+  time_t s = t / 1000;
+  time_t ms = t - s * 1000;
+
+  strftime(buf, 20, FMT, localtime(&s));
+  sprintf(buf + 19, ".%03ld", ms);
+
+  memcpy(dst, buf, 23);
+  return dst + 23;
 }
 
 static uint8_t* set_u08(uint8_t* dst, uint8_t src) {
@@ -58,12 +68,31 @@ static uint8_t* set_u32(uint8_t* dst, uint32_t src) {
   return dst + 4;
 }
 
-static uint8_t* get_all(uint8_t* dst, uint8_t* src, int s) {
-  if (!src)
-    return dst + s;
+static uint8_t* get_all(uint8_t* src, uint8_t* dst, int s) {
+  if (!dst)
+    return src + s;
 
-  memcpy(src, dst, s);
-  return dst + s;
+  memcpy(dst, src, s);
+  return src + s;
+}
+
+static uint8_t* get_ltm(uint8_t* src, size_t* dst) {
+  struct tm tm;
+
+  if (!strptime((char*)src, FMT, &tm)) {
+    errno = EPROTO;
+    return 0;
+  }
+
+  size_t ms;
+
+  if (sscanf((char*)src + 20, "%03ld", &ms) != 1) {
+    errno = EPROTO;
+    return 0;
+  }
+
+  *dst = mktime(&tm) * 1000 + ms;
+  return src + 23;
 }
 
 static uint8_t* get_u08(uint8_t* dst, uint8_t* src) {
@@ -80,6 +109,15 @@ static uint8_t* get_u16(uint8_t* dst, uint16_t* src) {
 
   *src = (dst[0] << 8) | (dst[1]);
   return dst + 2;
+}
+
+static int ltm_now(size_t* dst) {
+  struct timespec ts;
+
+  clock_gettime(CLOCK_REALTIME, &ts);
+  *dst = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+
+  return 0;
 }
 
 static int pkt_con(struct mosquitto__packet* pack) {
@@ -228,39 +266,6 @@ static int pkt_get(struct lm* msg, struct mosquitto__packet* pack) {
   return 0;
 }
 
-static int ltm_get(size_t* dst, char* src) {
-  struct tm tp;
-
-  if (!strptime(src, "%d.%m.%Y %H_%M_%S", &tp)) {
-    errno = EPROTO;
-    return -1;
-  }
-
-  if (!src) {
-    errno = EPROTO;
-    return -1;
-  }
-
-  int ms;
-
-  if (sscanf(src + 1, "%d", &ms) != 1) {
-    errno = EPROTO;
-    return -1;
-  }
-
-  *dst = mktime(&tp) * 1000 + ms;
-  return 0;
-}
-
-static int ltm_now(size_t* dst) {
-  struct timespec ts;
-
-  clock_gettime(CLOCK_REALTIME, &ts);
-  *dst = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-
-  return 0;
-}
-
 int pkt_ltom(struct mosquitto__packet* pack) {
   if (pack->command == CMD_CONNECT)
     return pkt_con(pack);
@@ -301,7 +306,7 @@ int pkt_ltom(struct mosquitto__packet* pack) {
           break;
         case 't':
           if (strlen(key) > 1 && key[1] == 'i')
-            if (ltm_get(&msg.timestamp, val))
+            if (!get_ltm((uint8_t*)val, &msg.timestamp))
               return -1;
 
           break;
@@ -395,53 +400,55 @@ int pkt_mtol(struct mosquitto__packet* pack) {
   if (!obj)
     return -1;
 
-  cJSON* timestamp = cJSON_GetObjectItemCaseSensitive(obj, "timestamp");
+  cJSON* field = cJSON_GetObjectItemCaseSensitive(obj, "timestamp");
 
-  if (!timestamp) {
+  if (!field) {
     errno = EPROTO;
     cJSON_Delete(obj);
     return -1;
   }
 
-  if (!cJSON_IsNumber(timestamp)) {
+  if (!cJSON_IsNumber(field)) {
     errno = EPROTO;
+    cJSON_Delete(field);
     cJSON_Delete(obj);
-    cJSON_Delete(timestamp);
     return -1;
   }
 
-  msg.timestamp = timestamp->valuedouble;
+  msg.timestamp = cJSON_GetNumberValue(field);
   msg.value = "null";
 
-  cJSON_Delete(timestamp);
-  cJSON* value = cJSON_GetObjectItemCaseSensitive(obj, "value");
+  cJSON_Delete(field);
+  field = cJSON_GetObjectItemCaseSensitive(obj, "value");
 
   int alloc = 0;
 
-  if (value) {
-    if (cJSON_IsString(value))
-      msg.value = cJSON_GetStringValue(value);
-    else if (cJSON_IsNumber(value)) {
-      msg.value = cJSON_PrintUnformatted(value);
+  if (field) {
+    if (cJSON_IsString(field))
+      msg.value = cJSON_GetStringValue(field);
+    else if (cJSON_IsNumber(field)) {
+      msg.value = cJSON_PrintUnformatted(field);
       alloc = 1;
     }
   }
 
-  pack->remaining_length = 40 + tl + strlen(msg.value);
+  pack->remaining_length = 55 + tl + strlen(msg.value);
 
   uint8_t* pld = mosquitto__malloc(pack->remaining_length);
   pp = pld;
 
   pp = set_fmt(pp, "name:%s", msg.topic);
   pp = set_all(pp, (uint8_t*)"|type:rw", 8);
-  pp = set_all(pp, (uint8_t*)"|units:-", 8);
+  pp = set_all(pp, (uint8_t*)"|units:-|time:", 14);
   pp = set_ltm(pp, msg.timestamp);
   pp = set_fmt(pp, "|val:%s\n", msg.value);
 
   if (alloc)
     free((char*)msg.value);
 
+  cJSON_Delete(field);
   cJSON_Delete(obj);
+
   mosquitto__free(pack->payload);
 
   pack->payload = (uint8_t*)pld;

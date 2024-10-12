@@ -5,13 +5,9 @@ if(WITH_LIB_CPP)
 endif(WITH_LIB_CPP)
 
 include_directories(
-  ${mosquitto_SOURCE_DIR} 
-  ${mosquitto_SOURCE_DIR}/lib
-  ${mosquitto_SOURCE_DIR}/include 
-  ${STDBOOL_H_PATH} 
-  ${STDINT_H_PATH}
-  ${UTHASH_INCLUDE_DIRS}
-)
+  ${mosquitto_SOURCE_DIR} ${mosquitto_SOURCE_DIR}/lib
+  ${mosquitto_SOURCE_DIR}/include ${STDBOOL_H_PATH} ${STDINT_H_PATH}
+  ${UTHASH_INCLUDE_DIRS})
 
 link_directories(${mosquitto_SOURCE_DIR}/lib)
 
@@ -77,10 +73,14 @@ set(C_SRC
     util_topic.c
     util_mosq.h
     will_mosq.c
-    will_mosq.h
-)
+    will_mosq.h)
 
 set(LIBRARIES ${OPENSSL_LIBRARIES})
+
+if(WITH_LEGACY)
+  set(LIBRARIES ${LIBRARIES} legacy)
+  add_definitions("-DWITH_LEGACY")
+endif(WITH_LEGACY)
 
 if(UNIX
    AND NOT APPLE
