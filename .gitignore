@@ -104,3 +104,6 @@ obj-*/
 
 # Others
 tmp/
+.cache/
+vcpkg_installed/
+vcpkg-manifest-install.log
