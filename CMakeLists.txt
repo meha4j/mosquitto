@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0042 NEW)
 
 set(CMAKE_TOOLCHAIN_FILE "vcpkg/scripts/buildsystems/vcpkg.cmake")
-set(CMAKE_EXPORT_COMPILE_COMMAND true)
+set(CMAKE_EXPORT_COMPILE_COMMANDS true)
 
 project(mosquitto)
 set(VERSION 2.0.19)
@@ -42,7 +42,7 @@ option(WITH_STATIC_LIBRARIES "Build static libraries?" OFF)
 option(WITH_PIC "Build the static library with PIC enabled archives?" OFF)
 option(WITH_DLT "Include DLT support?" OFF)
 
-find_package(cJSON REQUIRED)
+find_package(cJSON CONFIG REQUIRED)
 find_path(UTHASH_INCLUDE_DIRS "uthash.h")
 
 if(WITH_TLS)
