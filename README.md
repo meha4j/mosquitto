@@ -13,7 +13,7 @@ Clone:
 
 Build:
 
-    cd mosquitto & mkdir build & cd build & cmake .. & make
+    cd mosquitto && mkdir build && cd build && cmake .. && make
 
 Run:
 
