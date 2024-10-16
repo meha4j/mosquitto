@@ -7,12 +7,15 @@ the `mosquitto_pub` and `mosquitto_sub` utilities for publishing and
 subscribing.
 
 ## CAS
+Clone:
 
     git clone --recurse-submodules -b cas https://github.com/meha4j/mosquitto.git
 
-    cd mosquitto & mkdir build & cd build
+Build:
 
-    cmake .. & make
+    cd mosquitto & mkdir build & cd build & cmake .. & make
+
+Run:
 
     ./src/mosquitto -c ../cas.conf
 
