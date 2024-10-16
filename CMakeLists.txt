@@ -9,6 +9,7 @@ cmake_policy(SET CMP0042 NEW)
 
 set(CMAKE_TOOLCHAIN_FILE "vcpkg/scripts/buildsystems/vcpkg.cmake")
 set(CMAKE_EXPORT_COMPILE_COMMANDS true)
+set(CMAKE_BUILD_TYPE Debug)
 
 project(mosquitto)
 set(VERSION 2.0.19)

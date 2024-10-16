@@ -280,11 +280,8 @@ int packet__write(struct mosquitto* mosq) {
     packet = mosq->current_out_packet;
 
 #ifdef WITH_LEGACY
-    if (mosq->legacy && pkt_mtol(packet)) {
-      packet__cleanup(packet);
-      mosquitto__free(packet);
-      return 0;
-    }
+    if (mosq->legacy && pkt_mtol(packet))
+      goto next;
 #endif  // WITH_LEGACY
 
     while (packet->to_process > 0) {
@@ -322,6 +319,7 @@ int packet__write(struct mosquitto* mosq) {
       }
     }
 
+  next:
     G_MSGS_SENT_INC(1);
 
     if (((packet->command) & 0xF6) == CMD_PUBLISH) {
@@ -421,7 +419,6 @@ int packet__read(struct mosquitto* mosq) {
     read_length = net__read(mosq, &byte, 1);
 
     if (read_length == 1) {
-      mosq->in_packet.command = byte;
 
 #ifdef WITH_LEGACY
       if (((byte & 0xf0) == 0x60) || ((byte & 0xf0) == 0x70)) {
@@ -440,6 +437,8 @@ int packet__read(struct mosquitto* mosq) {
         }
       }
 #endif
+
+      mosq->in_packet.command = byte;
 
 #ifdef WITH_BROKER
       G_BYTES_RECEIVED_INC(1);

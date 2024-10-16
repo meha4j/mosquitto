@@ -129,6 +129,11 @@ static int pkt_con(struct mosquitto__packet* pack) {
   pack->remaining_length = 28;
   pack->payload = mosquitto__malloc(pack->remaining_length);
 
+  if (!pack->payload) {
+    errno = ENOMEM;
+    return -1;
+  }
+
   uint8_t* pp = pack->payload;
 
   pp = set_u16(pp, 0x0004);                 // Protocol length
@@ -154,13 +159,15 @@ static int pkt_pub(struct lm* msg, struct mosquitto__packet* pack) {
     return -1;
   }
 
-  if (cJSON_AddNumberToObject(obj, "timestamp", msg->timestamp)) {
+  if (!cJSON_AddNumberToObject(obj, "timestamp", msg->timestamp)) {
     cJSON_Delete(obj);
+    errno = EPROTO;
     return -1;
   }
 
-  if (msg->value && cJSON_AddStringToObject(obj, "value", msg->value)) {
+  if (msg->value && !cJSON_AddStringToObject(obj, "value", msg->value)) {
     cJSON_Delete(obj);
+    errno = EPROTO;
     return -1;
   }
 
@@ -171,8 +178,17 @@ static int pkt_pub(struct lm* msg, struct mosquitto__packet* pack) {
 
   pack->remaining_length = 3 + ts + ps;
 
-  uint8_t* pl = mosquitto__malloc(pack->remaining_length);
-  uint8_t* pp = pl;
+  uint8_t* pld = mosquitto__malloc(pack->remaining_length);
+
+  if (!pld) {
+    free(pay);
+    cJSON_Delete(obj);
+
+    errno = ENOMEM;
+    return -1;
+  }
+
+  uint8_t* pp = pld;
 
   pp = set_u16(pp, ts);                        // Topic length
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
@@ -185,21 +201,27 @@ static int pkt_pub(struct lm* msg, struct mosquitto__packet* pack) {
   if (pack->payload)
     mosquitto__free(pack->payload);
 
-  pack->payload = pl;
+  pack->payload = pld;
   pack->pos = 0;
 
   return 0;
 }
 
-static int pkt_sub(struct lm* msg, struct mosquitto__packet* pack) {
+static int pkt_sub(struct lm* msg, struct mosquitto__packet* pack, int n) {
   pack->command = 0x82;
 
   uint16_t ts = strlen(msg->topic);
 
   pack->remaining_length = 6 + ts;
 
-  uint8_t* pl = mosquitto__malloc(pack->remaining_length);
-  uint8_t* pp = pl;
+  uint8_t* pld = mosquitto__malloc(pack->remaining_length);
+
+  if (!pld) {
+    errno = ENOMEM;
+    return -1;
+  }
+
+  uint8_t* pp = pld;
 
   pp = set_u16(pp, 0x3654);                    // Packet identifier
   pp = set_u08(pp, 0x00);                      // Properties length
@@ -207,10 +229,20 @@ static int pkt_sub(struct lm* msg, struct mosquitto__packet* pack) {
   pp = set_all(pp, (uint8_t*)msg->topic, ts);  // Topic
   pp = set_u08(pp, 0x00);                      // Options
 
-  if (pack->payload)
+  if (n) {
+    pack->next = malloc(sizeof(struct mosquitto__packet));
+
+    if (!pack->next) {
+      mosquitto__free(pld);
+      errno = ENOMEM;
+      return -1;
+    }
+
+    pack->next->payload = pack->payload;
+  } else
     mosquitto__free(pack->payload);
 
-  pack->payload = pl;
+  pack->payload = pld;
   pack->pos = 3;
 
   return 0;
@@ -223,8 +255,14 @@ static int pkt_usub(struct lm* msg, struct mosquitto__packet* pack) {
 
   pack->remaining_length = 5 + ts;
 
-  uint8_t* pl = mosquitto__malloc(pack->remaining_length);
-  uint8_t* pp = pl;
+  uint8_t* pld = mosquitto__malloc(pack->remaining_length);
+
+  if (!pld) {
+    errno = ENOMEM;
+    return -1;
+  }
+
+  uint8_t* pp = pld;
 
   pp = set_u16(pp, 0x3654);                    // Packet identifier
   pp = set_u08(pp, 0x00);                      // Properties length
@@ -234,35 +272,23 @@ static int pkt_usub(struct lm* msg, struct mosquitto__packet* pack) {
   if (pack->payload)
     mosquitto__free(pack->payload);
 
-  pack->payload = pl;
+  pack->payload = pld;
   pack->pos = 2;
 
   return 0;
 }
 
 static int pkt_get(struct lm* msg, struct mosquitto__packet* pack) {
-  if (pkt_sub(msg, pack))
+  if (pkt_sub(msg, pack, 1))
     return -1;
 
-  struct mosquitto__packet* p =
-      mosquitto__malloc(sizeof(struct mosquitto__packet));
+  pack->next->next = 0;
 
-  if (!p) {
-    errno = ENOMEM;
-    return -1;
-  }
-
-  p->payload = 0;
-  p->next = 0;
-
-  packet__cleanup(p);
-
-  if (pkt_usub(msg, p)) {
-    mosquitto__free(p);
+  if (pkt_usub(msg, pack->next)) {
+    mosquitto__free(pack->next);
     return -1;
   }
 
-  pack->next = p;
   return 0;
 }
 
@@ -339,7 +365,7 @@ int pkt_ltom(struct mosquitto__packet* pack) {
 
       break;
     case CMD_SUBSCRIBE:
-      if (pkt_sub(&msg, pack))
+      if (pkt_sub(&msg, pack, 0))
         return -1;
 
       break;
@@ -397,28 +423,31 @@ int pkt_mtol(struct mosquitto__packet* pack) {
 
   cJSON* obj = cJSON_ParseWithLength((char*)pp, pack->remaining_length);
 
-  if (!obj)
+  if (!obj) {
+    errno = EPROTO;
     return -1;
+  }
 
   cJSON* field = cJSON_GetObjectItemCaseSensitive(obj, "timestamp");
 
   if (!field) {
-    errno = EPROTO;
     cJSON_Delete(obj);
+
+    errno = EPROTO;
     return -1;
   }
 
   if (!cJSON_IsNumber(field)) {
-    errno = EPROTO;
     cJSON_Delete(field);
     cJSON_Delete(obj);
+
+    errno = EPROTO;
     return -1;
   }
 
   msg.timestamp = cJSON_GetNumberValue(field);
   msg.value = "null";
 
-  cJSON_Delete(field);
   field = cJSON_GetObjectItemCaseSensitive(obj, "value");
 
   int alloc = 0;
@@ -432,9 +461,20 @@ int pkt_mtol(struct mosquitto__packet* pack) {
     }
   }
 
-  pack->remaining_length = 55 + tl + strlen(msg.value);
+  pack->remaining_length = 56 + tl + strlen(msg.value);
 
   uint8_t* pld = mosquitto__malloc(pack->remaining_length);
+
+  if (!pld) {
+    if (alloc)
+      free((char*)msg.value);
+
+    cJSON_Delete(obj);
+
+    errno = ENOMEM;
+    return -1;
+  }
+
   pp = pld;
 
   pp = set_fmt(pp, "name:%s", msg.topic);
@@ -446,9 +486,7 @@ int pkt_mtol(struct mosquitto__packet* pack) {
   if (alloc)
     free((char*)msg.value);
 
-  cJSON_Delete(field);
   cJSON_Delete(obj);
-
   mosquitto__free(pack->payload);
 
   pack->payload = (uint8_t*)pld;
