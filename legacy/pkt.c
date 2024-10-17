@@ -11,11 +11,14 @@
 #include <mqtt_protocol.h>
 #include <net_mosq.h>
 #include <packet_mosq.h>
+#include <mosquitto_broker.h>
 
 #define CMD_GET 0x0
 #define FMT "%d.%m.%Y %H_%M_%S"
 
 struct lm {
+  int cmd;
+
   const char* topic;
   const char* value;
 
@@ -285,57 +288,74 @@ static int pkt_get(struct lm* msg, struct mosquitto__packet* pack) {
   return 0;
 }
 
+int pkt_parse(char* payload, struct lm* msg) {
+  char* tok = strtok(payload, "|");
+
+  while (tok) {
+    char* key = tok;
+    char* val = strchr(tok, ':');
+
+    if (val) {
+      *val = 0;
+      val += 1;
+    } else {
+      tok = strtok(0, "|");
+      continue;
+    }
+
+    switch (key[0]) {
+      case 'm':
+        switch (val[0]) {
+          case 'g':
+            msg->cmd = CMD_GET;
+            break;
+          case 's':
+            if (strlen(val) == 1 || val[1] == 'e')
+              msg->cmd = CMD_PUBLISH;
+            else
+              msg->cmd = CMD_SUBSCRIBE;
+
+            break;
+          case 'r':
+          case 'f':
+            msg->cmd = CMD_UNSUBSCRIBE;
+            break;
+          default:
+            errno = MOSQ_ERR_MALFORMED_PACKET;
+            return -1;
+        };
+
+        break;
+      case 'n':
+        msg->topic = val;
+        break;
+      case 't':
+        if (strlen(key) > 1 && key[1] == 'i')
+          if (!get_ltm((uint8_t*)val, &msg->timestamp)) {
+            errno = MOSQ_ERR_MALFORMED_PACKET;
+            return -1;
+          }
+
+        break;
+      case 'v':
+        msg->value = val;
+        break;
+    }
+
+    tok = strtok(0, "|");
+  }
+
+  return 0;
+}
+
 int pkt_ltom(struct mosquitto__packet* pack) {
   if (pack->command == CMD_CONNECT)
     return pkt_con(pack);
 
-  struct lm msg = {0, 0, 0};
-  pack->command = 0;
+  struct lm msg = {-1, 0, 0, 0};
 
-  char* key = strtok((char*)pack->payload, ":");
-
-  while (key) {
-    char* val = strtok(0, "|");
-
-    if (val)
-      switch (key[0]) {
-        case 'm':
-          switch (val[0]) {
-            case 'g':
-              pack->command = CMD_GET;
-              break;
-            case 's':
-              if (strlen(val) == 1 || val[1] == 'e')
-                pack->command = CMD_PUBLISH;
-              else
-                pack->command = CMD_SUBSCRIBE;
-
-              break;
-            case 'r':
-            case 'f':
-              pack->command = CMD_UNSUBSCRIBE;
-              break;
-            default:
-              return -1;
-          };
-
-          break;
-        case 'n':
-          msg.topic = val;
-          break;
-        case 't':
-          if (strlen(key) > 1 && key[1] == 'i')
-            if (!get_ltm((uint8_t*)val, &msg.timestamp))
-              return -1;
-
-          break;
-        case 'v':
-          msg.value = val;
-          break;
-      }
-
-    key = strtok(0, ":");
-  }
+  if (pkt_parse((char*)pack->payload, &msg))
+    return -1;
 
   if (!msg.timestamp)
     if (ltm_now(&msg.timestamp))
@@ -346,7 +366,7 @@ int pkt_ltom(struct mosquitto__packet* pack) {
     return -1;
   }
 
-  switch (pack->command) {
+  switch (msg.cmd) {
     case CMD_GET:
       if (pkt_get(&msg, pack))
         return -1;

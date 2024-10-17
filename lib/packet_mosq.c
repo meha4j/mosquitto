@@ -681,10 +681,6 @@ lcy:
 
   if (pkt_ltom(&mosq->in_packet)) {
     rc = errno;
-
-    if (rc == MOSQ_ERR_MALFORMED_PACKET)
-      printf("Malformed VCAS packet: %s", mosq->in_packet.payload);
-
     goto end;
   }
 #endif  // WITH_LEGACY
