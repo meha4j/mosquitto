@@ -17,6 +17,7 @@ Contributors:
 */
 
 #include "config.h"
+#include "mosquitto_broker.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -427,8 +428,10 @@ int packet__read(struct mosquitto* mosq) {
         if (state == mosq_cs_new) {
           mosq->in_packet.command = CMD_CONNECT;
 
-          if (pkt_ltom(&mosq->in_packet))
+          if (pkt_ltom(&mosq->in_packet)) {
+            rc = errno;
             goto end;
+          }
 
           if ((rc = handle__packet(mosq)))
             goto end;
@@ -677,7 +680,11 @@ lcy:
   mosq->in_packet.payload[--mosq->in_packet.remaining_length] = 0;
 
   if (pkt_ltom(&mosq->in_packet)) {
-    rc = MOSQ_ERR_MALFORMED_PACKET;
+    rc = errno;
+
+    if (rc == MOSQ_ERR_MALFORMED_PACKET)
+      printf("Malformed VCAS packet: %s", mosq->in_packet.payload);
+
     goto end;
   }
 #endif  // WITH_LEGACY

@@ -80,14 +80,14 @@ static uint8_t* get_ltm(uint8_t* src, size_t* dst) {
   struct tm tm;
 
   if (!strptime((char*)src, FMT, &tm)) {
-    errno = EPROTO;
+    errno = MOSQ_ERR_MALFORMED_PACKET;
     return 0;
   }
 
   size_t ms;
 
   if (sscanf((char*)src + 20, "%03ld", &ms) != 1) {
-    errno = EPROTO;
+    errno = MOSQ_ERR_MALFORMED_PACKET;
     return 0;
   }
 
@@ -130,7 +130,7 @@ static int pkt_con(struct mosquitto__packet* pack) {
   pack->payload = mosquitto__malloc(pack->remaining_length);
 
   if (!pack->payload) {
-    errno = ENOMEM;
+    errno = MOSQ_ERR_NOMEM;
     return -1;
   }
 
@@ -155,21 +155,14 @@ static int pkt_pub(struct lm* msg, struct mosquitto__packet* pack) {
   cJSON* obj = cJSON_CreateObject();
 
   if (!obj) {
-    errno = ENOMEM;
+    errno = MOSQ_ERR_NOMEM;
     return -1;
   }
 
-  if (!cJSON_AddNumberToObject(obj, "timestamp", msg->timestamp)) {
-    cJSON_Delete(obj);
-    errno = EPROTO;
-    return -1;
-  }
+  cJSON_AddNumberToObject(obj, "timestamp", msg->timestamp);
 
-  if (msg->value && !cJSON_AddStringToObject(obj, "value", msg->value)) {
-    cJSON_Delete(obj);
-    errno = EPROTO;
-    return -1;
-  }
+  if (msg->value)
+    cJSON_AddStringToObject(obj, "value", msg->value);
 
   char* pay = cJSON_PrintUnformatted(obj);
 
@@ -184,7 +177,7 @@ static int pkt_pub(struct lm* msg, struct mosquitto__packet* pack) {
     free(pay);
     cJSON_Delete(obj);
 
-    errno = ENOMEM;
+    errno = MOSQ_ERR_NOMEM;
     return -1;
   }
 
@@ -217,7 +210,7 @@ static int pkt_sub(struct lm* msg, struct mosquitto__packet* pack, int n) {
   uint8_t* pld = mosquitto__malloc(pack->remaining_length);
 
   if (!pld) {
-    errno = ENOMEM;
+    errno = MOSQ_ERR_NOMEM;
     return -1;
   }
 
@@ -234,7 +227,7 @@ static int pkt_sub(struct lm* msg, struct mosquitto__packet* pack, int n) {
 
     if (!pack->next) {
       mosquitto__free(pld);
-      errno = ENOMEM;
+      errno = MOSQ_ERR_NOMEM;
       return -1;
     }
 
@@ -258,7 +251,7 @@ static int pkt_usub(struct lm* msg, struct mosquitto__packet* pack) {
   uint8_t* pld = mosquitto__malloc(pack->remaining_length);
 
   if (!pld) {
-    errno = ENOMEM;
+    errno = MOSQ_ERR_NOMEM;
     return -1;
   }
 
@@ -349,7 +342,7 @@ int pkt_ltom(struct mosquitto__packet* pack) {
       return -1;
 
   if (!msg.topic) {
-    errno = EPROTO;
+    errno = MOSQ_ERR_MALFORMED_PACKET;
     return -1;
   }
 
@@ -375,7 +368,7 @@ int pkt_ltom(struct mosquitto__packet* pack) {
 
       break;
     default:
-      errno = EPROTO;
+      errno = MOSQ_ERR_MALFORMED_PACKET;
       return -1;
   }
 
@@ -424,7 +417,7 @@ int pkt_mtol(struct mosquitto__packet* pack) {
   cJSON* obj = cJSON_ParseWithLength((char*)pp, pack->remaining_length);
 
   if (!obj) {
-    errno = EPROTO;
+    errno = MOSQ_ERR_MALFORMED_PACKET;
     return -1;
   }
 
@@ -432,8 +425,7 @@ int pkt_mtol(struct mosquitto__packet* pack) {
 
   if (!field) {
     cJSON_Delete(obj);
-
-    errno = EPROTO;
+    errno = MOSQ_ERR_MALFORMED_PACKET;
     return -1;
   }
 
@@ -441,7 +433,7 @@ int pkt_mtol(struct mosquitto__packet* pack) {
     cJSON_Delete(field);
     cJSON_Delete(obj);
 
-    errno = EPROTO;
+    errno = MOSQ_ERR_MALFORMED_PACKET;
     return -1;
   }
 
@@ -471,7 +463,7 @@ int pkt_mtol(struct mosquitto__packet* pack) {
 
     cJSON_Delete(obj);
 
-    errno = ENOMEM;
+    errno = MOSQ_ERR_NOMEM;
     return -1;
   }
 
