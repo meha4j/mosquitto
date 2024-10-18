@@ -9,3 +9,4 @@ target_include_directories(
   legacy PRIVATE  ${mosquitto_SOURCE_DIR} 
                   ${mosquitto_SOURCE_DIR}/lib
                   ${mosquitto_SOURCE_DIR}/include)
+

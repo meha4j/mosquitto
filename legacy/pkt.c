@@ -8,10 +8,10 @@
 
 #include <cjson/cJSON.h>
 #include <memory_mosq.h>
+#include <mosquitto_broker.h>
 #include <mqtt_protocol.h>
 #include <net_mosq.h>
 #include <packet_mosq.h>
-#include <mosquitto_broker.h>
 
 #define CMD_GET 0x0
 #define FMT "%d.%m.%Y %H_%M_%S"
@@ -24,6 +24,21 @@ struct lm {
 
   size_t timestamp;
 };
+
+void log_dbg(const char* fmt, ...) {
+  time_t t = time(NULL);
+  char dt[25];
+  va_list args;
+
+  strftime(dt, 25, "%F %T", localtime(&t));
+  printf("[%s]: ", dt);
+
+  va_start(args, fmt);
+  vprintf(fmt, args);
+  va_end(args);
+
+  putchar('\n');
+}
 
 static uint8_t* set_all(uint8_t* dst, uint8_t* src, int s) {
   memcpy(dst, src, s);
@@ -348,11 +363,11 @@ int pkt_parse(char* payload, struct lm* msg) {
   return 0;
 }
 
-int pkt_ltom(struct mosquitto__packet* pack) {
+int pkt_ltom(struct mosquitto* mosq, struct mosquitto__packet* pack) {
   if (pack->command == CMD_CONNECT)
     return pkt_con(pack);
 
-  printf("Parsing VCAS packet: %s\n", pack->payload);
+  log_dbg("Parsing VCAS packet: %s (%s)", pack->payload, mosq->address);
 
   struct lm msg = {-1, 0, 0, 0};
 

@@ -428,7 +428,7 @@ int packet__read(struct mosquitto* mosq) {
         if (state == mosq_cs_new) {
           mosq->in_packet.command = CMD_CONNECT;
 
-          if (pkt_ltom(&mosq->in_packet)) {
+          if (pkt_ltom(mosq, &mosq->in_packet)) {
             rc = errno;
             goto end;
           }
@@ -679,7 +679,7 @@ lcy:
 
   mosq->in_packet.payload[--mosq->in_packet.remaining_length] = 0;
 
-  if (pkt_ltom(&mosq->in_packet)) {
+  if (pkt_ltom(mosq, &mosq->in_packet)) {
     rc = errno;
     goto end;
   }

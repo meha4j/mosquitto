@@ -3,7 +3,9 @@
 
 #include "mosquitto_internal.h"
 
-int pkt_ltom(struct mosquitto__packet* pack);
+void log_dbg(const char* fmt, ...);
+
+int pkt_ltom(struct mosquitto *mosq, struct mosquitto__packet* pack);
 int pkt_mtol(struct mosquitto__packet* pack);
 
 #endif  // LCY_PKT_H
