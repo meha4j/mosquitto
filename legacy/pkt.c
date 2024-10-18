@@ -352,6 +352,8 @@ int pkt_ltom(struct mosquitto__packet* pack) {
   if (pack->command == CMD_CONNECT)
     return pkt_con(pack);
 
+  printf("Parsing VCAS packet: %s\n", pack->payload);
+
   struct lm msg = {-1, 0, 0, 0};
 
   if (pkt_parse((char*)pack->payload, &msg))
